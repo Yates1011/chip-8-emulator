@@ -5,10 +5,15 @@ typedef enum {
     CLS = 0x00E0, 
     RET = 0x00EE, 
     JP_ADDR = 0x1000, 
+    CALL = 0x2000,
+    SE = 0x3000,
+    SNE_VX = 0x4000,
+    SE_VX_VY = 0x5000,
     LD_VX_BYTE = 0x6000, 
     ADD_VX_BYTE = 0x7000,
-    CALL = 0x2000, 
-    SE = 0x3000,
+    LD_VX_VY = 0x8000,
+    OR_VX_VY = 0x8001,
+    AND_VX_VY = 0x8002, 
     LD_I_ADDR = 0xA000,
     JP_BASE = 0xB000,
 } OpcodeType;
@@ -81,7 +86,7 @@ void emulateCycle(Chip8& chip8) {
 
     case LD_VX_BYTE: { 
         uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-        uint8_t nn = chip8.opcode & 0x00FF;
+        uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
         chip8.V[x] = nn;
         chip8.pc += 2;
         break;
@@ -89,9 +94,33 @@ void emulateCycle(Chip8& chip8) {
 
     case ADD_VX_BYTE: { 
         uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-        uint8_t nn = chip8.opcode & 0x00FF;
+        uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
         chip8.V[x] += nn;
         chip8.pc += 2;
+        break;
+    }
+
+    case LD_VX_VY: {
+        uint8_t x = (chip8.opcode & 0x0F00) >> 8;
+        uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+
+        chip8.V[x] = chip8.V[y];
+        break; 
+    }
+
+    case OR_VX_VY: {
+        uint8_t x = (chip8.opcode & 0x0F00) >> 8;
+        uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+
+        chip8.V[x] |= chip8.V[y];
+        break;
+    }
+
+    case AND_VX_VY: {
+        uint8_t x = (chip8.opcode & 0x0F00) >> 8;
+        uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+
+        chip8.V[x] &= chip8.V[y];
         break;
     }
 
@@ -105,9 +134,31 @@ void emulateCycle(Chip8& chip8) {
     
     case SE: {
         uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-        uint8_t nn = (chip8.opcode & 0x00FF);
+        uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
 
         if (chip8.V[x] == nn)
+            chip8.pc += 4;
+        else
+            chip8.pc += 2;
+        break;
+    }
+
+    case SNE_VX: {
+        uint8_t x = (chip8.opcode & 0x0F00) >> 8;
+        uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
+
+        if (chip8.V[x] != nn)
+            chip8.pc += 4;
+        else
+            chip8.pc += 2;
+        break;
+    }
+
+    case SE_VX_VY: {
+        uint8_t x = (chip8.opcode & 0x0F00) >> 8;
+        uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+
+        if (chip8.V[x] == chip8.V[y])
             chip8.pc += 4;
         else
             chip8.pc += 2;
