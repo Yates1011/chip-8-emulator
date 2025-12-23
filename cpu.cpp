@@ -159,21 +159,6 @@ int main() {
     Chip8 chip8;
     initialise(chip8);
 
-    /* chip8.memory[0x200] = 0x60; // LD V0, 0x0A
-    chip8.memory[0x201] = 0x0A;
-    chip8.memory[0x202] = 0x61; // LD V1, 0x14
-    chip8.memory[0x203] = 0x14;
-    chip8.memory[0x204] = 0x70; // ADD V0   , 0x05
-    chip8.memory[0x205] = 0x05;        
-    chip8.memory[0x206] = 0x30; // SE V0, 0x0F
-    chip8.memory[0x207] = 0x0F;                  
-
-    for (int i = 0; i < 9; ++i) {
-        emulateCycle(chip8);
-        std::cout << "V0: " << std::dec << (int)chip8.V[0]
-                  << ", V1: " << (int)chip8.V[1] << "\n";
-    } */
-
     int addr = 0x200;
 
 
