@@ -1,6 +1,8 @@
 #include "cpu.hpp"
+#include <cstdlib>  
 
 void initialise(Chip8& chip8) {
+
   chip8.pc = 0x200;  // Programs start at 0x200
   chip8.opcode = 0;
   chip8.I = 0;
@@ -245,6 +247,23 @@ void emulateCycle(Chip8& chip8) {
     case JP_BASE: {
       uint16_t nnn = chip8.opcode & 0x0FFF;
       chip8.pc = nnn + chip8.V[0];
+      break;
+    }
+
+    /* Set Vx = random byte AND kk.
+
+The interpreter generates a random number from 0 to 255, which is then ANDed with the value kk. 
+The results are stored in Vx. See instruction 8xy2 for more information on AND. */
+
+
+    case RAND_VX: {
+      uint8_t x = (chip8.opcode & 0x0F00) >> 8;
+      uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
+
+      chip8.V[x] = static_cast<uint8_t>(rand() % 256) & nn;
+
+      chip8.pc += 2;
+
       break;
     }
 

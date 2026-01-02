@@ -1,3 +1,6 @@
+#ifndef CPU_HPP
+#define CPU_HPP
+
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -15,7 +18,7 @@ constexpr int NO_BORROW = 1;
 constexpr int BORROW = 0;
 
 
-typedef enum {
+enum OpcodeType {
     SYS_ADDR = 0x0000,
     CLS = 0x00E0, 
     RET = 0x00EE, 
@@ -38,7 +41,8 @@ typedef enum {
     SNE_VX_VY = 0x9000,
     LD_I_ADDR = 0xA000,
     JP_BASE = 0xB000,
-} OpcodeType;
+    RAND_VX = 0xC000
+};
 
 struct Chip8 {
     uint8_t memory[MEMORY_SIZE];
@@ -64,3 +68,5 @@ struct Chip8 {
     // Current opcode
     uint16_t opcode;
 };
+
+#endif
