@@ -250,12 +250,6 @@ void emulateCycle(Chip8& chip8) {
       break;
     }
 
-    /* Set Vx = random byte AND kk.
-
-The interpreter generates a random number from 0 to 255, which is then ANDed with the value kk. 
-The results are stored in Vx. See instruction 8xy2 for more information on AND. */
-
-
     case RAND_VX: {
       uint8_t x = (chip8.opcode & 0x0F00) >> 8;
       uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
@@ -267,7 +261,40 @@ The results are stored in Vx. See instruction 8xy2 for more information on AND. 
       break;
     }
 
-      // TODO: DXYN
+    case DRAW_VX: {
+        uint8_t n = chip8.opcode & 0x000F;     
+        uint8_t xReg = (chip8.opcode & 0x0F00) >> 8;
+        uint8_t yReg = (chip8.opcode & 0x00F0) >> 4;
+
+        uint8_t xStart = chip8.V[xReg];
+        uint8_t yStart = chip8.V[yReg];
+
+        chip8.V[0xF] = 0; 
+
+        for (uint8_t row = 0; row < n; row++) {
+            uint8_t spriteByte = chip8.memory[chip8.I + row];
+
+            for (uint8_t col = 0; col < NUM_COLS; col++) {
+                uint8_t spriteBit = (spriteByte >> (7 - col)) & 0x1;
+                if (spriteBit == 0) continue;
+
+                uint8_t x = (xStart + col) % SCREEN_WIDTH;
+                uint8_t y = (yStart + row) % SCREEN_HEIGHT;
+
+                // collision detection
+                if (chip8.gfx[y][x]) {
+                    chip8.V[0xF] = 1;
+                }
+
+                chip8.gfx[y][x] ^= 1;
+            }
+        }
+
+        chip8.draw_flag = true;
+        chip8.pc += 2;
+        break;
+    }
+
 
     default:
       std::cout << "Unknown opcode: " << std::hex << chip8.opcode << "\n";
@@ -281,20 +308,22 @@ The results are stored in Vx. See instruction 8xy2 for more information on AND. 
 }
 
 void printDisplay(Chip8& chip8) {
-  for (int y = 0; y < 32; y++) {
-    for (int x = 0; x < 64; x++) {
-      std::cout << (chip8.gfx[x + y * 64] ? "█" : " ");
+    for (int y = 0; y < SCREEN_HEIGHT; y++) {
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            std::cout << (chip8.gfx[y][x] ? "#" : " ");
+        }
+        std::cout << "\n";
     }
     std::cout << "\n";
-  }
-  std::cout << "\n";
 }
+
 
 int main() {
   Chip8 chip8;
   initialise(chip8);
 
   int addr = 0x200;
+
 
   // LD V0, 10 (x position)
   chip8.memory[addr++] = 0x60;
@@ -325,13 +354,16 @@ int main() {
   chip8.memory[addr++] = 0xD0;
   chip8.memory[addr++] = 0x15;
 
+
   // Infinite loop to keep program running
   // JP 0x20E (jump to current location)
   chip8.memory[addr++] = 0x12;
   chip8.memory[addr++] = 0x0E;
 
+
+
   // Run for a few cycles
-  for (int i = 0; i < 20; i++) {
+  for (int i = 0; i < 2000; i++) {
     emulateCycle(chip8);
   }
 
@@ -343,7 +375,6 @@ int main() {
   std::cout << "I:  0x" << std::hex << chip8.I << "\n";
   std::cout << "PC: 0x" << std::hex << chip8.pc << "\n";
 
-  // Further implementation would go here
 
   return 0;
 }

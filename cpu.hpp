@@ -16,6 +16,7 @@ constexpr int CARRY = 1;
 constexpr int NO_CARRY = 0;
 constexpr int NO_BORROW = 1;
 constexpr int BORROW = 0;
+constexpr int NUM_COLS = 8;
 
 
 enum OpcodeType {
@@ -41,7 +42,8 @@ enum OpcodeType {
     SNE_VX_VY = 0x9000,
     LD_I_ADDR = 0xA000,
     JP_BASE = 0xB000,
-    RAND_VX = 0xC000
+    RAND_VX = 0xC000,
+    DRAW_VX = 0xD000,
 };
 
 struct Chip8 {
@@ -60,13 +62,16 @@ struct Chip8 {
     uint8_t soundTimer;
 
 
-    bool gfx[SCREEN_WIDTH * SCREEN_HEIGHT];
+    // bool gfx[SCREEN_WIDTH * SCREEN_HEIGHT];
+    bool gfx[SCREEN_HEIGHT][SCREEN_WIDTH];
 
     // Keypad
     bool keys[NUM_KEYS];
 
     // Current opcode
     uint16_t opcode;
+
+    bool draw_flag;
 };
 
 #endif
