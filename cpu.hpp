@@ -20,32 +20,6 @@ constexpr int COL_WIDTH = 8;
 constexpr size_t CHIP8_RAM = 4096;
 constexpr size_t PROGRAM_START = 0x200;
 
-enum OpcodeType {
-  SYS_ADDR = 0x0000,
-  CLS = 0x00E0,
-  RET = 0x00EE,
-  JP_ADDR = 0x1000,
-  CALL = 0x2000,
-  SE = 0x3000,
-  SNE_VX = 0x4000,
-  SE_VX_VY = 0x5000,
-  LD_VX_BYTE = 0x6000,
-  ADD_VX_BYTE = 0x7000,
-  LD_VX_VY = 0x8000,
-  OR_VX_VY = 0x8001,
-  AND_VX_VY = 0x8002,
-  XOR_VX_VY = 0x8003,
-  ADD_VX_VY = 0x8004,
-  SUB_VX_VY = 0x8005,
-  SHR_VX_VY = 0x8006,
-  SUBN_VX_VY = 0x8007,
-  SHL_VX_VY = 0x800E,
-  SNE_VX_VY = 0x9000,
-  LD_I_ADDR = 0xA000,
-  JP_BASE = 0xB000,
-  RAND_VX = 0xC000,
-  DRAW_VX = 0xD000,
-};
 
 struct Chip8 {
   uint8_t memory[MEMORY_SIZE];
@@ -73,5 +47,59 @@ struct Chip8 {
 
   bool draw_flag;
 };
+
+enum class OpcodeFamily : uint16_t {
+  SYS   = 0x0000,
+  JP    = 0x1000,
+  CALL  = 0x2000,
+  SE_VX = 0x3000,
+  SNE_VX= 0x4000,
+  SE_VY = 0x5000,
+  LD    = 0x6000,
+  ADD   = 0x7000,
+  ALU   = 0x8000,
+  SNE   = 0x9000,
+  LD_I  = 0xA000,
+  JP_V0 = 0xB000,
+  RAND  = 0xC000,
+  DRAW  = 0xD000,
+  KEY   = 0xE000,
+  MISC  = 0xF000
+};
+
+enum class SysOpcode : uint8_t {
+  CLS = 0xE0,
+  RET = 0xEE
+};
+
+enum class AluOpcode : uint8_t {
+  LD   = 0x0,
+  OR   = 0x1,
+  AND  = 0x2,
+  XOR  = 0x3,
+  ADD  = 0x4,
+  SUB  = 0x5,
+  SHR  = 0x6,
+  SUBN = 0x7,
+  SHL  = 0xE
+};
+
+enum class MiscOpcode : uint8_t {
+  LD_DT    = 0x07,  // FX07 - Vx = delay timer
+  LD_KEY   = 0x0A,  // FX0A - Wait for key press
+  SET_DT   = 0x15,  // FX15 - delay timer = Vx
+  SET_ST   = 0x18,  // FX18 - sound timer = Vx
+  ADD_I    = 0x1E,  // FX1E - I += Vx
+  LD_FONT  = 0x29,  // FX29 - I = font sprite for Vx
+  LD_BCD   = 0x33,  // FX33 - Store BCD of Vx
+  STORE    = 0x55,  // FX55 - Store V0-Vx in memory
+  LOAD     = 0x65   // FX65 - Load V0-Vx from memory
+};
+
+enum class KeyOpcode : uint8_t {
+  SKP  = 0x9E,
+  SKNP = 0xA1
+};
+
 
 #endif

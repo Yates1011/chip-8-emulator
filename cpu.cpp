@@ -1,418 +1,435 @@
 #include "cpu.hpp"
-#include <cstdlib>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <chrono>
 #include <unistd.h>
+#include <termios.h>
+#include <fcntl.h>
+#include <cstdlib>
+#include <ctime>
 
+/* 
+ * =========================
+ * CHIP-8 INITIALISATION
+ * =========================
+ */
 void initialise(Chip8 &chip8) {
+    chip8.pc = 0x200; // Programs start at 0x200
+    chip8.opcode = 0;
+    chip8.I = 0;
+    chip8.sp = 0;
 
-  chip8.pc = 0x200; // Programs start at 0x200
-  chip8.opcode = 0;
-  chip8.I = 0;
-  chip8.sp = 0;
+    std::memset(chip8.memory, 0, sizeof(chip8.memory));
+    std::memset(chip8.V, 0, sizeof(chip8.V));
+    std::memset(chip8.stack, 0, sizeof(chip8.stack));
+    std::memset(chip8.gfx, 0, sizeof(chip8.gfx));
+    std::memset(chip8.keys, 0, sizeof(chip8.keys));
 
-  std::memset(chip8.memory, 0, sizeof(chip8.memory));
-  std::memset(chip8.V, 0, sizeof(chip8.V));
-  std::memset(chip8.stack, 0, sizeof(chip8.stack));
-  std::memset(chip8.gfx, 0, sizeof(chip8.gfx));
-  std::memset(chip8.keys, 0, sizeof(chip8.keys));
+    chip8.delayTimer = 0;
+    chip8.soundTimer = 0;
+    chip8.draw_flag = false;
 
-  chip8.delayTimer = 0;
-  chip8.soundTimer = 0;
+    // Standard CHIP-8 font set (0–F)
+    const uint8_t fontset[80] = {
+        0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+        0x20, 0x60, 0x20, 0x20, 0x70, // 1
+        0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+        0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+        0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+        0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+        0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+        0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+        0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+        0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+        0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+        0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+        0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+        0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+        0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+        0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+    };
 
-  uint8_t fontset[80] = {
-      0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-      0x20, 0x60, 0x20, 0x20, 0x70, // 1
-      0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-      0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-      0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-      0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-      0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-      0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-      0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-      0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-      0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-      0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-      0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-      0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-      0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-      0xF0, 0x80, 0xF0, 0x80, 0x80  // F
-  };
+    for (int i = 0; i < 80; ++i)
+        chip8.memory[i] = fontset[i];
 
-  for (int i = 0; i < 80; i++) {
-    chip8.memory[i] = fontset[i];
-  }
+    // Seed random number generator
+    std::srand(std::time(nullptr));
 }
 
-void emulateCycle(Chip8 &chip8) {
-  // Fetch
-  chip8.opcode =
-      chip8.memory[chip8.pc] << 8 |
-      chip8.memory[chip8.pc + 1]; // build opcode e.g. 0x61 << 8 | 0x0A = 0x610A
+/* 
+ * =========================
+ * CPU EMULATION
+ * =========================
+ */
+void emulateCycle(Chip8 &c) {
+    c.opcode = (c.memory[c.pc] << 8) | c.memory[c.pc + 1];
 
-  switch (chip8.opcode & 0xF000) { // e.g. 0x610A & 0xF000 = 0x6000
+    uint8_t x = (c.opcode & 0x0F00) >> 8;
+    uint8_t y = (c.opcode & 0x00F0) >> 4;
+    uint8_t nn = c.opcode & 0x00FF;
+    uint16_t nnn = c.opcode & 0x0FFF;
+    uint8_t n = c.opcode & 0x000F;
 
-  case SYS_ADDR:
-    switch (chip8.opcode & 0x00FF) {
-    case CLS:
-      std::memset(chip8.gfx, 0, sizeof(chip8.gfx));
-      chip8.pc += 2;
-      break;
+    switch (static_cast<OpcodeFamily>(c.opcode & 0xF000)) {
+        case OpcodeFamily::SYS:
+            switch (static_cast<SysOpcode>(nn)) {
+                case SysOpcode::CLS:
+                    std::memset(c.gfx, 0, sizeof(c.gfx));
+                    c.draw_flag = true;
+                    c.pc += 2;
+                    break;
+                case SysOpcode::RET:
+                    c.pc = c.stack[--c.sp];
+                    break;
+                default:
+                    c.pc += 2;
+                    break;
+            }
+            break;
 
-    case RET:
-      chip8.sp--;
-      chip8.pc = chip8.stack[chip8.sp];
-      break;
+        case OpcodeFamily::JP:
+            c.pc = nnn;
+            break;
+
+        case OpcodeFamily::CALL:
+            c.stack[c.sp++] = c.pc + 2;
+            c.pc = nnn;
+            break;
+
+        case OpcodeFamily::SE_VX: // 3XNN - Skip if Vx == NN
+            c.pc += (c.V[x] == nn) ? 4 : 2;
+            break;
+
+        case OpcodeFamily::SNE_VX: // 4XNN - Skip if Vx != NN
+            c.pc += (c.V[x] != nn) ? 4 : 2;
+            break;
+
+        case OpcodeFamily::SE_VY: // 5XY0 - Skip if Vx == Vy
+            c.pc += (c.V[x] == c.V[y]) ? 4 : 2;
+            break;
+
+        case OpcodeFamily::LD: // 6XNN - Set Vx = NN
+            c.V[x] = nn;
+            c.pc += 2;
+            break;
+
+        case OpcodeFamily::ADD: // 7XNN - Add NN to Vx
+            c.V[x] += nn;
+            c.pc += 2;
+            break;
+
+        case OpcodeFamily::ALU:
+            switch (static_cast<AluOpcode>(n)) {
+                case AluOpcode::LD: // 8XY0 - Set Vx = Vy
+                    c.V[x] = c.V[y];
+                    break;
+
+                case AluOpcode::OR: // 8XY1 - Set Vx = Vx OR Vy
+                    c.V[x] |= c.V[y];
+                    break;
+
+                case AluOpcode::AND: // 8XY2 - Set Vx = Vx AND Vy
+                    c.V[x] &= c.V[y];
+                    break;
+
+                case AluOpcode::XOR: // 8XY3 - Set Vx = Vx XOR Vy
+                    c.V[x] ^= c.V[y];
+                    break;
+
+                case AluOpcode::ADD: { // 8XY4 - Add Vy to Vx, set VF = carry
+                    uint16_t sum = c.V[x] + c.V[y];
+                    c.V[0xF] = sum > 0xFF;
+                    c.V[x] = sum & 0xFF;
+                    break;
+                }
+
+                case AluOpcode::SUB: { // 8XY5 - Set Vx = Vx - Vy, set VF = NOT borrow
+                    c.V[0xF] = c.V[x] >= c.V[y];
+                    c.V[x] -= c.V[y];
+                    break;
+                }
+
+                case AluOpcode::SHR: // 8XY6 - Set Vx = Vx >> 1, VF = LSB
+                    c.V[0xF] = c.V[x] & 0x01;
+                    c.V[x] >>= 1;
+                    break;
+
+                case AluOpcode::SUBN: { // 8XY7 - Set Vx = Vy - Vx, set VF = NOT borrow
+                    c.V[0xF] = c.V[y] >= c.V[x];
+                    c.V[x] = c.V[y] - c.V[x];
+                    break;
+                }
+
+                case AluOpcode::SHL: // 8XYE - Set Vx = Vx << 1, VF = MSB
+                    c.V[0xF] = (c.V[x] & 0x80) >> 7;
+                    c.V[x] <<= 1;
+                    break;
+
+                default:
+                    break;
+            }
+            c.pc += 2;
+            break;
+
+        case OpcodeFamily::SNE: // 9XY0 - Skip if Vx != Vy
+            c.pc += (c.V[x] != c.V[y]) ? 4 : 2;
+            break;
+
+        case OpcodeFamily::LD_I: // ANNN - Set I = NNN
+            c.I = nnn;
+            c.pc += 2;
+            break;
+
+        case OpcodeFamily::JP_V0: // BNNN - Jump to location NNN + V0
+            c.pc = nnn + c.V[0];
+            break;
+
+        case OpcodeFamily::RAND: // CXNN - Set Vx = random byte AND NN
+            c.V[x] = (std::rand() % 256) & nn;
+            c.pc += 2;
+            break;
+
+        case OpcodeFamily::DRAW: // DXYN - Draw sprite
+            c.V[0xF] = 0;
+            for (int row = 0; row < n; ++row) {
+                uint8_t sprite = c.memory[c.I + row];
+                for (int col = 0; col < 8; ++col) {
+                    if (sprite & (0x80 >> col)) {
+                        int px = (c.V[x] + col) % SCREEN_WIDTH;
+                        int py = (c.V[y] + row) % SCREEN_HEIGHT;
+                        if (c.gfx[py][px])
+                            c.V[0xF] = 1;
+                        c.gfx[py][px] ^= 1;
+                    }
+                }
+            }
+            c.draw_flag = true;
+            c.pc += 2;
+            break;
+
+        case OpcodeFamily::KEY:
+            switch (static_cast<KeyOpcode>(nn)) {
+                case KeyOpcode::SKP: // EX9E - Skip if key Vx is pressed
+                    c.pc += c.keys[c.V[x]] ? 4 : 2;
+                    break;
+
+                case KeyOpcode::SKNP: // EXA1 - Skip if key Vx is not pressed
+                    c.pc += !c.keys[c.V[x]] ? 4 : 2;
+                    break;
+
+                default:
+                    c.pc += 2;
+                    break;
+            }
+            break;
+
+        case OpcodeFamily::MISC:
+            switch (static_cast<MiscOpcode>(nn)) {
+                case MiscOpcode::LD_DT: // FX07 - Set Vx = delay timer
+                    c.V[x] = c.delayTimer;
+                    break;
+
+                case MiscOpcode::SET_DT: // FX15 - Set delay timer = Vx
+                    c.delayTimer = c.V[x];
+                    break;
+
+                case MiscOpcode::SET_ST: // FX18 - Set sound timer = Vx
+                    c.soundTimer = c.V[x];
+                    break;
+
+                case MiscOpcode::ADD_I: // FX1E - Set I = I + Vx
+                    c.I += c.V[x];
+                    break;
+
+                default:
+                    // Handle additional FX opcodes
+                    switch (nn) {
+                        case 0x0A: { // FX0A - Wait for key press, store in Vx
+                            bool key_pressed = false;
+                            for (int i = 0; i < NUM_KEYS; ++i) {
+                                if (c.keys[i]) {
+                                    c.V[x] = i;
+                                    key_pressed = true;
+                                    break;
+                                }
+                            }
+                            if (!key_pressed)
+                                return; // Don't increment PC, wait for key
+                            break;
+                        }
+
+                        case 0x29: // FX29 - Set I = location of sprite for digit Vx
+                            c.I = c.V[x] * 5; // Each font sprite is 5 bytes
+                            break;
+
+                        case 0x33: { // FX33 - Store BCD representation of Vx
+                            c.memory[c.I] = c.V[x] / 100;
+                            c.memory[c.I + 1] = (c.V[x] / 10) % 10;
+                            c.memory[c.I + 2] = c.V[x] % 10;
+                            break;
+                        }
+
+                        case 0x55: // FX55 - Store V0 to Vx in memory starting at I
+                            for (int i = 0; i <= x; ++i)
+                                c.memory[c.I + i] = c.V[i];
+                            break;
+
+                        case 0x65: // FX65 - Read V0 to Vx from memory starting at I
+                            for (int i = 0; i <= x; ++i)
+                                c.V[i] = c.memory[c.I + i];
+                            break;
+
+                        default:
+                            break;
+                    }
+                    break;
+            }
+            c.pc += 2;
+            break;
+
+        default:
+            c.pc += 2;
+            break;
     }
-    break;
+}
 
-  case JP_ADDR: {
-    uint16_t addr = chip8.opcode & 0x0FFF;
-    chip8.pc = addr;
-    break;
-  }
+/* 
+ * =========================
+ * DISPLAY
+ * =========================
+ */
+void printDisplay(Chip8 &chip8) {
+    for (int y = 0; y < SCREEN_HEIGHT; ++y) {
+        for (int x = 0; x < SCREEN_WIDTH; ++x)
+            std::cout << (chip8.gfx[y][x] ? "#" : " ");
+        std::cout << "\n";
+    }
+    std::cout << std::flush;
+}
 
-  case LD_VX_BYTE: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
-    chip8.V[x] = nn;
-    chip8.pc += 2;
-    break;
-  }
+/* 
+ * =========================
+ * ROM LOADING
+ * =========================
+ */
+bool loadROM(const char *filename, Chip8 &chip8) {
+    std::ifstream rom(filename, std::ios::binary | std::ios::ate);
+    if (!rom) {
+        std::cerr << "Failed to open ROM: " << filename << "\n";
+        return false;
+    }
 
-  case ADD_VX_BYTE: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
-    chip8.V[x] += nn;
-    chip8.pc += 2;
-    break;
-  }
+    std::streamsize size = rom.tellg();
+    if (size <= 0 || size > (CHIP8_RAM - PROGRAM_START)) {
+        std::cerr << "Invalid ROM size\n";
+        return false;
+    }
 
-  case LD_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+    rom.seekg(0, std::ios::beg);
+    rom.read(reinterpret_cast<char*>(&chip8.memory[PROGRAM_START]), size);
+    return true;
+}
 
-    chip8.V[x] = chip8.V[y];
-    chip8.pc += 2;
-    break;
-  }
+/* 
+ * =========================
+ * TERMINAL KEYBOARD INPUT
+ * =========================
+ */
+struct Keyboard {
+    termios oldt{};
+    bool initialised = false;
 
-  case OR_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+    void init() {
+        if (initialised) return;
+        termios newt;
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+        fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+        initialised = true;
+    }
 
-    chip8.V[x] |= chip8.V[y];
-    chip8.pc += 2;
-    break;
-  }
+    int poll() const {
+        return getchar();
+    }
+};
 
-  case AND_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+int mapKey(int c) {
+    switch (c) {
+        case '1': return 0x1;
+        case '2': return 0x2;
+        case '3': return 0x3;
+        case '4': return 0xC;
+        case 'q': return 0x4;
+        case 'w': return 0x5;
+        case 'e': return 0x6;
+        case 'r': return 0xD;
+        case 'a': return 0x7;
+        case 's': return 0x8;
+        case 'd': return 0x9;
+        case 'f': return 0xE;
+        case 'z': return 0xA;
+        case 'x': return 0x0;
+        case 'c': return 0xB;
+        case 'v': return 0xF;
+    }
+    return -1;
+}
 
-    chip8.V[x] &= chip8.V[y];
-    chip8.pc += 2;
-    break;
-  }
+void updateKeys(Chip8 &c, Keyboard &kb) {
+    int ch = kb.poll();
+    if (ch == EOF) return;
+    int key = mapKey(ch);
+    if (key >= 0)
+        c.keys[key] = 1;
+}
 
-  case XOR_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+/* 
+ * =========================
+ * MAIN LOOP
+ * =========================
+ */
+int main() {
+    Chip8 chip8;
+    initialise(chip8);
 
-    chip8.V[x] ^= chip8.V[y];
-    chip8.pc += 2;
-    break;
-  }
+    if (!loadROM("PONG.ch8", chip8))
+        return 1;
 
-  case ADD_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
+    Keyboard keyboard;
+    keyboard.init();
 
-    uint16_t sum = chip8.V[x] + chip8.V[y];
+    auto lastTimer = std::chrono::high_resolution_clock::now();
+    static int keyDecay = 0;
 
-    chip8.V[15] = (sum > 0xFF) ? CARRY : NO_CARRY;
+    while (true) {
+        updateKeys(chip8, keyboard);
+        emulateCycle(chip8);
 
-    chip8.V[x] = static_cast<uint8_t>(sum & 0xFF);
-    chip8.pc += 2;
-
-    break;
-  }
-
-  case SUB_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
-
-    chip8.V[15] = (chip8.V[x] >= chip8.V[y]) ? NO_BORROW : BORROW;
-
-    chip8.V[x] = chip8.V[x] - chip8.V[y];
-
-    chip8.pc += 2;
-
-    break;
-  }
-
-  case SHR_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-
-    chip8.V[15] = chip8.V[x] & 1;
-    chip8.V[x] >>= 1;
-
-    chip8.pc += 2;
-
-    break;
-  }
-
-  case SUBN_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
-
-    // chip8.V[x] = chip8.V[y] - chip8.V[x];
-
-    chip8.V[15] = (chip8.V[y] >= chip8.V[x]) ? 1 : 0;
-
-    chip8.V[x] = chip8.V[y] - chip8.V[x];
-
-    chip8.pc += 2;
-
-    break;
-  }
-
-  case SHL_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-
-    chip8.V[15] = chip8.V[x] & 1;
-    chip8.V[x] <<= 1;
-    chip8.pc += 2;
-
-    break;
-  }
-
-  case SNE_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
-
-    if (chip8.V[x] != chip8.V[y])
-      chip8.pc += 4;
-    else
-      chip8.pc += 2;
-    break;
-  }
-
-  case CALL: {
-    chip8.stack[chip8.sp] = chip8.pc + 2;
-    chip8.sp++;
-    uint16_t addr = chip8.opcode & 0x0FFF;
-    chip8.pc = addr;
-    break;
-  }
-
-  case SE: {
-    uint8_t x =
-        (chip8.opcode & 0x0F00) >> 8; // TODO doublec check this implementation
-    uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
-
-    if (chip8.V[x] == nn)
-      chip8.pc += 4;
-    else
-      chip8.pc += 2;
-    break;
-  }
-
-  case SNE_VX: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
-
-    if (chip8.V[x] != nn)
-      chip8.pc += 4;
-    else
-      chip8.pc += 2;
-    break;
-  }
-
-  case SE_VX_VY: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t y = (chip8.opcode & 0x00F0) >> 4;
-
-    if (chip8.V[x] == chip8.V[y])
-      chip8.pc += 4;
-    else
-      chip8.pc += 2;
-    break;
-  }
-
-  case LD_I_ADDR: {
-    uint16_t nnn = chip8.opcode & 0x0FFF;
-    chip8.I = nnn;
-    chip8.pc += 2;
-    break;
-  }
-
-  case JP_BASE: {
-    uint16_t nnn = chip8.opcode & 0x0FFF;
-    chip8.pc = nnn + chip8.V[0];
-    break;
-  }
-
-  case RAND_VX: {
-    uint8_t x = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t nn = static_cast<uint8_t>(chip8.opcode & 0x00FF);
-
-    chip8.V[x] = static_cast<uint8_t>(rand() % 256) & nn;
-
-    chip8.pc += 2;
-
-    break;
-  }
-
-  case DRAW_VX: {
-    uint8_t n = chip8.opcode & 0x000F;
-    uint8_t xReg = (chip8.opcode & 0x0F00) >> 8;
-    uint8_t yReg = (chip8.opcode & 0x00F0) >> 4;
-
-    uint8_t xStart = chip8.V[xReg];
-    uint8_t yStart = chip8.V[yReg];
-
-    chip8.V[0xF] = 0;
-
-    for (uint8_t row = 0; row < n; row++) {
-      uint8_t spriteByte = chip8.memory[chip8.I + row];
-
-      for (uint8_t col = 0; col < COL_WIDTH; col++) {
-        uint8_t spriteBit = (spriteByte >> (7 - col)) & 0x1;
-        if (spriteBit == 0)
-          continue;
-
-        uint8_t x = (xStart + col) % SCREEN_WIDTH;
-        uint8_t y = (yStart + row) % SCREEN_HEIGHT;
-
-        // collision detection
-        if (chip8.gfx[y][x]) {
-          chip8.V[0xF] = 1;
+        keyDecay++;
+        if (keyDecay > 6) { // TODO: magic number 
+            std::memset(chip8.keys, 0, sizeof(chip8.keys));
+            keyDecay = 0;
         }
 
-        chip8.gfx[y][x] ^= 1;
-      }
+        auto now = std::chrono::high_resolution_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTimer).count() >= 16) {
+            if (chip8.delayTimer > 0)
+                chip8.delayTimer--;
+            if (chip8.soundTimer > 0)
+                chip8.soundTimer--;
+            lastTimer = now;
+        }
+
+        if (chip8.draw_flag) {
+            system("clear");
+            printDisplay(chip8);
+            chip8.draw_flag = false;
+        }
+
+        usleep(1200);
     }
-
-    chip8.draw_flag = true;
-    chip8.pc += 2;
-    break;
-  }
-
-  default:
-    std::cout << "Unknown opcode: " << std::hex << chip8.opcode << "\n";
-    chip8.pc += 2;
-  }
-
-  // Timers (60 Hz in real emulator)
-  if (chip8.delayTimer > 0)
-    chip8.delayTimer--;
-
-  if (chip8.soundTimer > 0)
-    chip8.soundTimer--;
-}
-
-void printDisplay(Chip8 &chip8) {
-  for (int y = 0; y < SCREEN_HEIGHT; y++) {
-    for (int x = 0; x < SCREEN_WIDTH; x++) {
-      std::cout << (chip8.gfx[y][x] ? "#" : " ");
-    }
-    std::cout << "\n";
-  }
-  std::cout << "\n";
-}
-
-bool loadROM(const char *filename, Chip8 &chip8) {
-  std::ifstream rom(filename, std::ios::binary | std::ios::ate);
-  if (!rom) {
-    std::cerr << "Failed to open ROM: " << filename << "\n";
-    return false;
-  }
-
-  std::streamsize fileSize = rom.tellg();
-
-  if (fileSize <= 0) {
-    std::cerr << "Invalid ROM size\n";
-    return false;
-  }
-
-  const size_t size = static_cast<size_t>(fileSize);
-
-  if (size > (CHIP8_RAM - PROGRAM_START)) { // TODO: maybe just make CHIP_RAM an int...
-    std::cerr << "ROM too big\n";
-    return false;
-  }
-
-  rom.seekg(0, std::ios::beg);
-
-  std::memset(&chip8.memory[PROGRAM_START], 0, CHIP8_RAM - PROGRAM_START);
-
-  // uint8_t and char are layout compatible and read does not care about the
-  // type just bytes After reading, chip8.memory contains the exact amount of
-  // bytes of the ROM loaded
-  if (!rom.read(reinterpret_cast<char *>(&chip8.memory[PROGRAM_START]),
-                fileSize)) {
-    std::cerr << "Failed to read ROM data\n";
-    return false;
-  }
-
-  return true;
-}
-
-int main() {
-  Chip8 chip8;
-  initialise(chip8);
-
-  int addr = 0x200;
-
-  // LD V0, 10 (x position)
-  chip8.memory[addr++] = 0x60;
-  chip8.memory[addr++] = 0x0A;
-
-  // LD V1, 10 (y position)
-  chip8.memory[addr++] = 0x61;
-  chip8.memory[addr++] = 0x0A;
-
-  // LD I, 0x0014 (address of sprite for "5" in fontset)
-  chip8.memory[addr++] = 0xA0;
-  chip8.memory[addr++] = 0x19; // 5 * 5 bytes = 25 = 0x19
-
-  // DRW V0, V1, 5 (draw 5 bytes tall sprite)
-  chip8.memory[addr++] = 0xD0;
-  chip8.memory[addr++] = 0x15;
-
-  // Draw another digit "8" at (20, 10)
-  // LD V0, 20
-  chip8.memory[addr++] = 0x60;
-  chip8.memory[addr++] = 0x14;
-
-  // LD I, 0x0028 (address of sprite for "8")
-  chip8.memory[addr++] = 0xA0;
-  chip8.memory[addr++] = 0x28; // 8 * 5 = 40 = 0x28
-
-  // DRW V0, V1, 5
-  chip8.memory[addr++] = 0xD0;
-  chip8.memory[addr++] = 0x15;
-
-  // Infinite loop to keep program running
-  // JP 0x20E (jump to current location)
-  chip8.memory[addr++] = 0x12;
-  chip8.memory[addr++] = 0x0E;
-
-  // Run for a few cycles
-  for (int i = 0; i < 2000; i++) {
-    emulateCycle(chip8);
-  }
-
-  printDisplay(chip8);
-
-  std::cout << "Register values:\n";
-  std::cout << "V0: " << std::dec << (int)chip8.V[0] << "\n";
-  std::cout << "V1: " << (int)chip8.V[1] << "\n";
-  std::cout << "I:  0x" << std::hex << chip8.I << "\n";
-  std::cout << "PC: 0x" << std::hex << chip8.pc << "\n";
-
-  initialise(chip8);
-  std::cout << "Loading...\n";
-  bool loaded = loadROM("PONG.ch8", chip8);
-
-  return 0;
 }
