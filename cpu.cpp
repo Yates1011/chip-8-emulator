@@ -9,6 +9,9 @@
 #include <fcntl.h>
 #include <cstdlib>
 #include <ctime>
+#include <string>
+#include <string_view>
+#include <filesystem>
 
 /* 
  * =========================
@@ -314,10 +317,12 @@ void printDisplay(Chip8 &chip8) {
  * ROM LOADING
  * =========================
  */
-bool loadROM(const char *filename, Chip8 &chip8) {
-    std::ifstream rom(filename, std::ios::binary | std::ios::ate);
+bool loadROM(std::string_view filename, Chip8 &chip8) {
+    std::filesystem::path path(filename);
+
+    std::ifstream rom(path, std::ios::binary | std::ios::ate);
     if (!rom) {
-        std::cerr << "Failed to open ROM: " << filename << "\n";
+        std::cerr << "Failed to open ROM: " << path << "\n";
         return false;
     }
 
@@ -331,6 +336,7 @@ bool loadROM(const char *filename, Chip8 &chip8) {
     rom.read(reinterpret_cast<char*>(&chip8.memory[PROGRAM_START]), size);
     return true;
 }
+
 
 /* 
  * =========================
@@ -386,6 +392,7 @@ void updateKeys(Chip8 &c, Keyboard &kb) {
     if (key >= 0)
         c.keys[key] = 1;
 }
+ 
 
 /* 
  * =========================
@@ -396,7 +403,12 @@ int main() {
     Chip8 chip8;
     initialise(chip8);
 
-    if (!loadROM("PONG.ch8", chip8))
+    std::string ROMFilename; 
+
+    std::cout << "Enter path to ROM: " << std::endl;
+    std::getline(std::cin, ROMFilename);
+
+    if (!loadROM(ROMFilename, chip8))
         return 1;
 
     Keyboard keyboard;
@@ -410,7 +422,7 @@ int main() {
         emulateCycle(chip8);
 
         keyDecay++;
-        if (keyDecay > 6) { // TODO: magic number 
+        if (keyDecay > 20) { // TODO:
             std::memset(chip8.keys, 0, sizeof(chip8.keys));
             keyDecay = 0;
         }
@@ -425,9 +437,9 @@ int main() {
         }
 
         if (chip8.draw_flag) {
-            system("clear");
-            printDisplay(chip8);
+            std::cout << "\033[2J\033[1;1H";
             chip8.draw_flag = false;
+            printDisplay(chip8);
         }
 
         usleep(1200);

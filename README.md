@@ -18,4 +18,3 @@ valgrind --tool=callgrind --callgrind-out-file=callgrind.out ./chip8
 
 # 4. Visualise with kcachegrind (GUI)
 kcachegrind callgrind.out
-
