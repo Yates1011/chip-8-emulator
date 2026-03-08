@@ -13,11 +13,7 @@
 #include <string_view>
 #include <filesystem>
 
-/* 
- * =========================
- * CHIP-8 INITIALISATION
- * =========================
- */
+
 void initialise(Chip8 &chip8) {
     chip8.pc = 0x200; // Programs start at 0x200
     chip8.opcode = 0;
@@ -61,11 +57,7 @@ void initialise(Chip8 &chip8) {
     std::srand(std::time(nullptr));
 }
 
-/* 
- * =========================
- * CPU EMULATION
- * =========================
- */
+
 void emulateCycle(Chip8 &c) {
     c.opcode = (c.memory[c.pc] << 8) | c.memory[c.pc + 1];
 
@@ -298,25 +290,7 @@ void emulateCycle(Chip8 &c) {
     }
 }
 
-/* 
- * =========================
- * DISPLAY
- * =========================
- */
-void printDisplay(Chip8 &chip8) {
-    for (int y = 0; y < SCREEN_HEIGHT; ++y) {
-        for (int x = 0; x < SCREEN_WIDTH; ++x)
-            std::cout << (chip8.gfx[y][x] ? "#" : " ");
-        std::cout << "\n";
-    }
-    std::cout << std::flush;
-}
 
-/* 
- * =========================
- * ROM LOADING
- * =========================
- */
 bool loadROM(std::string_view filename, Chip8 &chip8) {
     std::filesystem::path path(filename);
 
@@ -335,113 +309,4 @@ bool loadROM(std::string_view filename, Chip8 &chip8) {
     rom.seekg(0, std::ios::beg);
     rom.read(reinterpret_cast<char*>(&chip8.memory[PROGRAM_START]), size);
     return true;
-}
-
-
-/* 
- * =========================
- * TERMINAL KEYBOARD INPUT
- * =========================
- */
-struct Keyboard {
-    termios oldt{};
-    bool initialised = false;
-
-    void init() {
-        if (initialised) return;
-        termios newt;
-        tcgetattr(STDIN_FILENO, &oldt);
-        newt = oldt;
-        newt.c_lflag &= ~(ICANON | ECHO);
-        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-        fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
-        initialised = true;
-    }
-
-    int poll() const {
-        return getchar();
-    }
-};
-
-int mapKey(int c) {
-    switch (c) {
-        case '1': return 0x1;
-        case '2': return 0x2;
-        case '3': return 0x3;
-        case '4': return 0xC;
-        case 'q': return 0x4;
-        case 'w': return 0x5;
-        case 'e': return 0x6;
-        case 'r': return 0xD;
-        case 'a': return 0x7;
-        case 's': return 0x8;
-        case 'd': return 0x9;
-        case 'f': return 0xE;
-        case 'z': return 0xA;
-        case 'x': return 0x0;
-        case 'c': return 0xB;
-        case 'v': return 0xF;
-    }
-    return -1;
-}
-
-void updateKeys(Chip8 &c, Keyboard &kb) {
-    int ch = kb.poll();
-    if (ch == EOF) return;
-    int key = mapKey(ch);
-    if (key >= 0)
-        c.keys[key] = 1;
-}
- 
-
-/* 
- * =========================
- * MAIN LOOP
- * =========================
- */
-int main() {
-    Chip8 chip8;
-    initialise(chip8);
-
-    std::string ROMFilename; 
-
-    std::cout << "Enter path to ROM: " << std::endl;
-    std::getline(std::cin, ROMFilename);
-
-    if (!loadROM(ROMFilename, chip8))
-        return 1;
-
-    Keyboard keyboard;
-    keyboard.init();
-
-    auto lastTimer = std::chrono::high_resolution_clock::now();
-    static int keyDecay = 0;
-
-    while (true) {
-        updateKeys(chip8, keyboard);
-        emulateCycle(chip8);
-
-        keyDecay++;
-        if (keyDecay > 20) { // TODO:
-            std::memset(chip8.keys, 0, sizeof(chip8.keys));
-            keyDecay = 0;
-        }
-
-        auto now = std::chrono::high_resolution_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTimer).count() >= 16) {
-            if (chip8.delayTimer > 0)
-                chip8.delayTimer--;
-            if (chip8.soundTimer > 0)
-                chip8.soundTimer--;
-            lastTimer = now;
-        }
-
-        if (chip8.draw_flag) {
-            std::cout << "\033[2J\033[1;1H";
-            chip8.draw_flag = false;
-            printDisplay(chip8);
-        }
-
-        usleep(1200);
-    }
 }

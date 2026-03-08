@@ -19,6 +19,11 @@ constexpr int BORROW = 0;
 constexpr int COL_WIDTH = 8;
 constexpr size_t CHIP8_RAM = 4096;
 constexpr size_t PROGRAM_START = 0x200;
+constexpr int W_BUFFER_SIZE = 16;
+constexpr int H_BUFFER_SIZE = 36;
+constexpr int X_MAIN_WINDOW_SIZE = 320;
+constexpr int Y_MAIN_WINDOW_SIZE = 500;
+constexpr int STACK_SIZE = 16;
 
 
 struct Chip8 {
