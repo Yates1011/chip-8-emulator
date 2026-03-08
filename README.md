@@ -4,7 +4,8 @@
 
 ## Build with imgui
 
-# 1.  sudo apt install libsdl2-dev
+# 1.  
+sudo apt install libsdl2-dev
 
 # 2. g++ cpu.cpp display.cpp \
     imgui/imgui.cpp imgui/imgui_draw.cpp \
