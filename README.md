@@ -1,4 +1,5 @@
 # chip-8-emulator
+![Demo](demo.gif)
 ## Build with imgui
 
 # 1.  
